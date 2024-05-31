@@ -1,0 +1,10 @@
+{
+    "name": "com.unityroom.client",
+    "version": "0.1.0",
+    "displayName": "Unityroom.Client",
+    "description": "unityroom client library.",
+    "unity": "2021.3",
+    "author": {
+        "name": "unityroom"
+    }
+}
