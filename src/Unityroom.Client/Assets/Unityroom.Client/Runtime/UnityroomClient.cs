@@ -47,19 +47,20 @@ namespace Unityroom.Client
                         if (retryCount > 0)
                         {
                             retryCount--;
+                            await TaskEx.DelayOnPlayerLoop(TimeSpan.FromSeconds(1.0), cancellationToken);
                             goto RETRY;
                         }
                     }
 
                     throw new UnityroomApiException(int.Parse(errorResponse.Code), errorResponse.Type, errorResponse.Message);
                 }
+
+                return JsonUtility.FromJson<SendScoreResponse>(webRequest.downloadHandler.text);
             }
             finally
             {
                 webRequest.Dispose();
             }
-
-            return JsonUtility.FromJson<SendScoreResponse>(webRequest.downloadHandler.text);
         }
 
         UnityWebRequest CreateScoreRequest(int scoreboardId, string hmacKey, float value)
