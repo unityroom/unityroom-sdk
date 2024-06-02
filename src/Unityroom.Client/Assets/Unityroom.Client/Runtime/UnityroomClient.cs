@@ -47,7 +47,7 @@ namespace Unityroom.Client
                         if (retryCount > 0)
                         {
                             retryCount--;
-                            await TaskEx.DelayOnPlayerLoop(TimeSpan.FromSeconds(1.0), cancellationToken);
+                            await TaskEx.DelayOnPlayerLoop(TimeSpan.FromSeconds(2.0), cancellationToken);
                             goto RETRY;
                         }
                     }
