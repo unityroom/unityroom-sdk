@@ -15,10 +15,13 @@ namespace Unityroom.Client
         IScoreboards Scoreboards { get; }
     }
 
-    public sealed class UnityroomClient : IUnityroomClient, IScoreboards
+    public sealed class UnityroomClient : IDisposable, IUnityroomClient, IScoreboards
     {
         public string HmacKey { get; set; }
+        public TimeSpan Timeout { get; set; } = TimeSpan.FromMinutes(10);
         public int MaxRetries { get; set; } = 2;
+
+        readonly CancellationTokenSource clientLifetimeTokenSource = new();
 
         public IScoreboards Scoreboards => this;
 
@@ -27,6 +30,10 @@ namespace Unityroom.Client
             var retryCount = MaxRetries;
 
         RETRY:
+            // TODO: CancellationTokenSourceの適切なプーリングによるゼロアロケーション化
+            var cts = CancellationTokenSource.CreateLinkedTokenSource(clientLifetimeTokenSource.Token, cancellationToken);
+            cts.CancelAfter(Timeout);
+
             var webRequest = CreateScoreRequest(request.ScoreboardId, HmacKey, request.Score);
 
             try
@@ -57,8 +64,27 @@ namespace Unityroom.Client
 
                 return JsonUtility.FromJson<SendScoreResponse>(webRequest.downloadHandler.text);
             }
+            catch (OperationCanceledException ex) when (ex.CancellationToken == cts.Token)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    // 引数のCancellationTokenがキャンセルされた場合
+                    throw new OperationCanceledException(ex.Message, ex, cancellationToken);
+                }
+                else if (clientLifetimeTokenSource.IsCancellationRequested)
+                {
+                    // ClientがDisposeされた場合
+                    throw new OperationCanceledException("UnityroomClient is disposed.", ex, clientLifetimeTokenSource.Token);
+                }
+                else
+                {
+                    // タイムアウト時
+                    throw new TimeoutException($"The request was canceled due to the configured Timeout of {Timeout.TotalSeconds} seconds elapsing.", ex);
+                }
+            }
             finally
             {
+                cts.Dispose();
                 webRequest.Dispose();
             }
         }
@@ -114,6 +140,12 @@ namespace Unityroom.Client
         static int GetCurrentUnixTime()
         {
             return (int)DateTime.UtcNow.Subtract(new DateTime(1970, 1, 1)).TotalSeconds;
+        }
+
+        public void Dispose()
+        {
+            clientLifetimeTokenSource.Cancel();
+            clientLifetimeTokenSource.Dispose();
         }
     }
 }
