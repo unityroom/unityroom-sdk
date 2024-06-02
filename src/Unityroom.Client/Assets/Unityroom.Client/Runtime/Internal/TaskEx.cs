@@ -16,5 +16,26 @@ namespace Unityroom.Client
                 await Task.Yield();
             }
         }
+
+        public static async Task CancelAfterOnPlayerLoop(this CancellationTokenSource cts, TimeSpan delay)
+        {
+            try
+            {
+                await DelayOnPlayerLoop(delay, cts.Token);
+                cts.Cancel();
+            }
+            catch (OperationCanceledException)
+            {
+
+            }
+        }
+
+        public static void Forget(this Task task)
+        {
+            task.ContinueWith(x =>
+            {
+                Debug.LogException(x.Exception);
+            }, TaskContinuationOptions.OnlyOnFaulted);
+        }
     }
 }

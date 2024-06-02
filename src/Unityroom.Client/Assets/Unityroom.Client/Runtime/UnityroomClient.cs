@@ -32,13 +32,13 @@ namespace Unityroom.Client
         RETRY:
             // TODO: CancellationTokenSourceの適切なプーリングによるゼロアロケーション化
             var cts = CancellationTokenSource.CreateLinkedTokenSource(clientLifetimeTokenSource.Token, cancellationToken);
-            cts.CancelAfter(Timeout);
+            cts.CancelAfterOnPlayerLoop(Timeout).Forget();
 
             var webRequest = CreateScoreRequest(request.ScoreboardId, HmacKey, request.Score);
 
             try
             {
-                await webRequest.SendAsync(cancellationToken);
+                await webRequest.SendAsync(cts.Token);
 
                 if (!string.IsNullOrWhiteSpace(webRequest.error))
                 {
@@ -54,7 +54,7 @@ namespace Unityroom.Client
                         if (retryCount > 0)
                         {
                             retryCount--;
-                            await TaskEx.DelayOnPlayerLoop(TimeSpan.FromSeconds(2.0), cancellationToken);
+                            await TaskEx.DelayOnPlayerLoop(TimeSpan.FromSeconds(2.0), cts.Token);
                             goto RETRY;
                         }
                     }
