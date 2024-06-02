@@ -18,27 +18,49 @@ namespace Unityroom.Client
     public sealed class UnityroomClient : IUnityroomClient, IScoreboards
     {
         public string HmacKey { get; set; }
+        public int MaxRetries { get; set; } = 2;
 
         public IScoreboards Scoreboards => this;
 
         async Task<SendScoreResponse> IScoreboards.SendAsync(SendScoreRequest request, CancellationToken cancellationToken)
         {
-            using var webRequest = CreateScoreRequest(request.ScoreboardId, HmacKey, request.Score);
-            await webRequest.SendAsync(cancellationToken);
+            var retryCount = MaxRetries;
 
-            if (!string.IsNullOrWhiteSpace(webRequest.error))
+        RETRY:
+            var webRequest = CreateScoreRequest(request.ScoreboardId, HmacKey, request.Score);
+
+            try
             {
-                var errorResponse = JsonUtility.FromJson<UnityroomApiErrorResponse>(webRequest.downloadHandler.text);
-                
-                if (errorResponse == null)
+                await webRequest.SendAsync(cancellationToken);
+
+                if (!string.IsNullOrWhiteSpace(webRequest.error))
                 {
-                    throw new InvalidOperationException($"UnityWebRequest.SendWebRequest is failed, Result: {webRequest.result}");
+                    var errorResponse = JsonUtility.FromJson<UnityroomApiErrorResponse>(webRequest.downloadHandler.text);
+
+                    if (errorResponse == null)
+                    {
+                        throw new InvalidOperationException($"UnityWebRequest.SendWebRequest is failed, Result: {webRequest.result}");
+                    }
+
+                    if (errorResponse.Type == "rate_limit_exceeded")
+                    {
+                        if (retryCount > 0)
+                        {
+                            retryCount--;
+                            await TaskEx.DelayOnPlayerLoop(TimeSpan.FromSeconds(2.0), cancellationToken);
+                            goto RETRY;
+                        }
+                    }
+
+                    throw new UnityroomApiException(int.Parse(errorResponse.Code), errorResponse.Type, errorResponse.Message);
                 }
 
-                throw new UnityroomApiException(int.Parse(errorResponse.Code), errorResponse.Type, errorResponse.Message);
+                return JsonUtility.FromJson<SendScoreResponse>(webRequest.downloadHandler.text);
             }
-
-            return JsonUtility.FromJson<SendScoreResponse>(webRequest.downloadHandler.text);
+            finally
+            {
+                webRequest.Dispose();
+            }
         }
 
         UnityWebRequest CreateScoreRequest(int scoreboardId, string hmacKey, float value)
