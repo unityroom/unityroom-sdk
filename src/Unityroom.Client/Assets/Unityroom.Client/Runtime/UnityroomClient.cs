@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
@@ -30,7 +31,6 @@ namespace Unityroom.Client
             var retryCount = MaxRetries;
 
         RETRY:
-            // TODO: CancellationTokenSourceの適切なプーリングによるゼロアロケーション化
             var cts = CancellationTokenSource.CreateLinkedTokenSource(clientLifetimeTokenSource.Token, cancellationToken);
             cts.CancelAfterOnPlayerLoop(Timeout).Forget();
 
@@ -84,6 +84,7 @@ namespace Unityroom.Client
             }
             finally
             {
+                cts.Cancel();
                 cts.Dispose();
                 webRequest.Dispose();
             }

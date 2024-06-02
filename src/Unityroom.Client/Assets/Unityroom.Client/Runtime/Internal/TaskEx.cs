@@ -7,6 +7,8 @@ namespace Unityroom.Client
 {
     internal static class TaskEx
     {
+        // TODO: 効率的な待機処理の追加
+
         public static async Task DelayOnPlayerLoop(TimeSpan timeSpan, CancellationToken cancellationToken = default)
         {
             var startTime = Time.realtimeSinceStartupAsDouble;
