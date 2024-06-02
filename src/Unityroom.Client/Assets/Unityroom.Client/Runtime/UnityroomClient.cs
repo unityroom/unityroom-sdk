@@ -32,7 +32,7 @@ namespace Unityroom.Client
 
         RETRY:
             var cts = CancellationTokenSource.CreateLinkedTokenSource(clientLifetimeTokenSource.Token, cancellationToken);
-            cts.CancelAfterOnPlayerLoop(Timeout).Forget();
+            cts.CancelAfterOnMainThread(Timeout).Forget();
 
             var webRequest = CreateScoreRequest(request.ScoreboardId, HmacKey, request.Score);
 
@@ -54,7 +54,7 @@ namespace Unityroom.Client
                         if (retryCount > 0)
                         {
                             retryCount--;
-                            await TaskEx.DelayOnPlayerLoop(TimeSpan.FromSeconds(2.0), cts.Token);
+                            await TaskEx.DelayOnMainThread(TimeSpan.FromSeconds(2.0), cts.Token);
                             goto RETRY;
                         }
                     }

@@ -9,7 +9,7 @@ namespace Unityroom.Client
     {
         // TODO: 効率的な待機処理の追加
 
-        public static async Task DelayOnPlayerLoop(TimeSpan timeSpan, CancellationToken cancellationToken = default)
+        public static async Task DelayOnMainThread(TimeSpan timeSpan, CancellationToken cancellationToken = default)
         {
             var startTime = Time.realtimeSinceStartupAsDouble;
             while (TimeSpan.FromSeconds(Time.realtimeSinceStartupAsDouble - startTime) < timeSpan)
@@ -19,11 +19,11 @@ namespace Unityroom.Client
             }
         }
 
-        public static async Task CancelAfterOnPlayerLoop(this CancellationTokenSource cts, TimeSpan delay)
+        public static async Task CancelAfterOnMainThread(this CancellationTokenSource cts, TimeSpan delay)
         {
             try
             {
-                await DelayOnPlayerLoop(delay, cts.Token);
+                await DelayOnMainThread(delay, cts.Token);
                 cts.Cancel();
             }
             catch (OperationCanceledException)
