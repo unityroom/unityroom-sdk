@@ -24,10 +24,20 @@ namespace Unityroom.Client
 
         readonly CancellationTokenSource clientLifetimeTokenSource = new();
 
+        int requestCount;
+        const int MaxRequestCount = 3;
+
         public IScoreboards Scoreboards => this;
 
         async Task<SendScoreResponse> IScoreboards.SendAsync(SendScoreRequest request, CancellationToken cancellationToken)
         {
+            if (requestCount > MaxRequestCount)
+            {
+                throw new InvalidOperationException($"The number of concurrent executions exceeded the limit ({MaxRequestCount}).");
+            }
+
+            requestCount++;
+
             var retryCount = MaxRetries;
 
         RETRY:
@@ -84,6 +94,8 @@ namespace Unityroom.Client
             }
             finally
             {
+                requestCount--;
+
                 cts.Cancel();
                 cts.Dispose();
                 webRequest.Dispose();
