@@ -64,7 +64,8 @@ namespace Unityroom.Client
                         if (retryCount > 0)
                         {
                             retryCount--;
-                            await TaskEx.DelayOnMainThread(TimeSpan.FromSeconds(2.0), cts.Token);
+                            // unityroom側のrate_limitの仕様に合わせ、5秒間の待機を行う
+                            await TaskEx.DelayOnMainThread(TimeSpan.FromSeconds(5.0), cts.Token);
                             goto RETRY;
                         }
                     }
