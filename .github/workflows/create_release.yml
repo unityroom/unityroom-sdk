@@ -1,0 +1,44 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "version (sample 1.0.0)"
+        required: true
+
+jobs:
+  create_release:
+    name: create_release
+    runs-on: ubuntu-latest
+    env:
+      ROOT: src/Unityroom.Client/Assets/Unityroom.Client
+      TAG: v${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: set version & git commit
+        run: |
+          sed -i -e "s/\(\"version\":\) \"\(.*\)\",/\1 \"${{ inputs.version }}\",/" ${{ env.ROOT }}/package.json
+
+          git add .
+          git config --global user.name 'github-bot'
+          git config --global user.email 'github-bot@users.noreply.github.com'
+          git commit -m "update version ${{ inputs.version }}"
+          git push origin main
+
+      - name: add tag
+        run: |
+          git tag -f ${{ env.TAG }}
+          git push origin ${{ env.TAG }}
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ env.TAG }}
+          name: v${{ inputs.version }}
+          generate_release_notes: true
+          draft: true
+          prerelease: false
