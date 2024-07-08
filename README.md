@@ -23,11 +23,6 @@ unityroom-sdkはフリーゲーム投稿サイト[unityroom](https://unityroom.c
     https://github.com/unityroom/unityroom-sdk.git?path=src/Unityroom.Client/Assets/Unityroom.Client
     ```
 
-#### .unitypackageからインストール
-
-1. [Releases](https://github.com/unityroom/unityroom-sdk/releases)から.unitypackageファイルをダウンロード
-2. ダウンロードしたファイルを実行してプロジェクトにインポートする
-
 ### unityroom側
 
 1. [こちら](https://unityroom-help.notion.site/4fae458305a948818b90e50dcad6a3f3?pvs=4)の手順に従い、unityroom側でのセットアップを行う
