@@ -10,7 +10,7 @@ unityroom-sdkはフリーゲーム投稿サイト[unityroom](https://unityroom.c
 
 * Unity 2021.2 以上
 
-#### Package Managerからインストール (推奨)
+#### Package Managerからインストール
 
 1. Window > Package ManagerからPackage Managerウィンドウを開く
     * ![img1](docs/img1.png)
