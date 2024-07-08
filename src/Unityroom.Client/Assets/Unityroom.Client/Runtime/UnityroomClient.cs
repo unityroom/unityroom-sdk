@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Runtime.CompilerServices;
@@ -18,14 +19,31 @@ namespace Unityroom.Client
 
     public sealed class UnityroomClient : IDisposable, IUnityroomClient, IScoreboards
     {
-        public string HmacKey { get; set; }
+        public string HmacKey
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => hmacKey;
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            set
+            {
+                hmacKey = value;
+                sha256 = new HMACSHA256(Convert.FromBase64String(hmacKey));
+            }
+        }
+
         public TimeSpan Timeout { get; set; } = TimeSpan.FromMinutes(10);
         public int MaxRetries { get; set; } = 2;
 
         readonly CancellationTokenSource clientLifetimeTokenSource = new();
 
+        string hmacKey;
+        HMACSHA256 sha256;
+
         int requestCount;
         const int MaxRequestCount = 3;
+
+        static readonly Dictionary<string, string> formFields = new();
 
         public IScoreboards Scoreboards => this;
 
@@ -108,7 +126,7 @@ namespace Unityroom.Client
             var builder = new ValueStringBuilder();
 
             builder.Append("/gameplay_api/v1/scoreboards/");
-            builder.Append(scoreboardId);
+            builder.Append(ConvertEx.ToString(scoreboardId));
             builder.Append("/scores");
             var path = builder.ToString();
 
@@ -119,17 +137,17 @@ namespace Unityroom.Client
             builder = new();
             builder.Append("POST\n");
             builder.Append(path);
-            builder.Append("\n");
+            builder.Append('\n');
             builder.Append(unixTime);
-            builder.Append("\n");
+            builder.Append('\n');
             builder.Append(scoreText);
             var hmacDataText = builder.ToString();
 
-            var hmac = GetHmacSha256(hmacDataText, hmacKey);
+            var hmac = GetHmacSha256(hmacDataText);
 
-            var form = new WWWForm();
-            form.AddField("score", scoreText);
-            var request = UnityWebRequest.Post(path, form);
+            formFields.Clear();
+            formFields.Add("score", scoreText);
+            var request = UnityWebRequest.Post(path, formFields);
             request.SetRequestHeader("X-Unityroom-Signature", hmac);
             request.SetRequestHeader("X-Unityroom-Timestamp", unixTime);
 
@@ -137,17 +155,23 @@ namespace Unityroom.Client
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        static string GetHmacSha256(string dataText, string base64AuthenticationKey)
+        string GetHmacSha256(string dataText)
         {
-            // TODO: アロケーションの削減
-            var dataBytes = Encoding.UTF8.GetBytes(dataText);
-            var keyBytes = Convert.FromBase64String(base64AuthenticationKey);
-            var sha256 = new HMACSHA256(keyBytes);
-            var hmacBytes = sha256.ComputeHash(dataBytes);
-            var hmacText = BitConverter.ToString(hmacBytes)
-                .ToLower()
-                .Replace("-", "");
-            return hmacText;
+            if (sha256 == null) return null;
+
+            var buffer = ArrayPool<byte>.Shared.Rent(Encoding.UTF8.GetMaxByteCount(dataText.Length));
+            try
+            {
+                var bytesWritten = Encoding.UTF8.GetBytes(dataText, buffer);
+                Span<byte> hash = stackalloc byte[32];
+                sha256.TryComputeHash(buffer.AsSpan(0, bytesWritten), hash, out _);
+
+                return ConvertEx.ToHexString(hash, HexConverter.Casing.Lower);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
