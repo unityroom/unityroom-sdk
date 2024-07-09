@@ -1,82 +1,126 @@
+// Licensed to the .NET Foundation under one or more agreements.
+// The .NET Foundation licenses this file to you under the MIT license.
+
 using System;
 using System.Buffers;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 #nullable enable
 
-namespace Unityroom.Client
+namespace System.Text
 {
     internal ref partial struct ValueStringBuilder
     {
-        char[]? arrayToReturnToPool;
-        Span<char> chars;
-        int pos;
+        private char[]? _arrayToReturnToPool;
+        private Span<char> _chars;
+        private int _pos;
 
         public ValueStringBuilder(Span<char> initialBuffer)
         {
-            arrayToReturnToPool = null;
-            chars = initialBuffer;
-            pos = 0;
+            _arrayToReturnToPool = null;
+            _chars = initialBuffer;
+            _pos = 0;
         }
 
         public ValueStringBuilder(int initialCapacity)
         {
-            arrayToReturnToPool = ArrayPool<char>.Shared.Rent(initialCapacity);
-            chars = arrayToReturnToPool;
-            pos = 0;
+            _arrayToReturnToPool = ArrayPool<char>.Shared.Rent(initialCapacity);
+            _chars = _arrayToReturnToPool;
+            _pos = 0;
         }
 
         public int Length
         {
-            get => pos;
-            set => pos = value;
+            get => _pos;
+            set
+            {
+                Debug.Assert(value >= 0);
+                Debug.Assert(value <= _chars.Length);
+                _pos = value;
+            }
         }
 
-        public int Capacity => chars.Length;
+        public int Capacity => _chars.Length;
 
         public void EnsureCapacity(int capacity)
         {
-            if ((uint)capacity > (uint)chars.Length)
-                Grow(capacity - pos);
+            // This is not expected to be called this with negative capacity
+            Debug.Assert(capacity >= 0);
+
+            // If the caller has a bug and calls this with negative capacity, make sure to call Grow to throw an exception.
+            if ((uint)capacity > (uint)_chars.Length)
+                Grow(capacity - _pos);
+        }
+
+        /// <summary>
+        /// Get a pinnable reference to the builder.
+        /// Does not ensure there is a null char after <see cref="Length"/>
+        /// This overload is pattern matched in the C# 7.3+ compiler so you can omit
+        /// the explicit method call, and write eg "fixed (char* c = builder)"
+        /// </summary>
+        public ref char GetPinnableReference()
+        {
+            return ref MemoryMarshal.GetReference(_chars);
+        }
+
+        /// <summary>
+        /// Get a pinnable reference to the builder.
+        /// </summary>
+        /// <param name="terminate">Ensures that the builder has a null char after <see cref="Length"/></param>
+        public ref char GetPinnableReference(bool terminate)
+        {
+            if (terminate)
+            {
+                EnsureCapacity(Length + 1);
+                _chars[Length] = '\0';
+            }
+            return ref MemoryMarshal.GetReference(_chars);
         }
 
         public ref char this[int index]
         {
             get
             {
-                Debug.Assert(index < pos);
-                return ref chars[index];
+                Debug.Assert(index < _pos);
+                return ref _chars[index];
             }
         }
 
         public override string ToString()
         {
-            string s = chars.Slice(0, pos).ToString();
+            string s = _chars.Slice(0, _pos).ToString();
             Dispose();
             return s;
         }
 
-        public Span<char> RawChars => chars;
+        /// <summary>Returns the underlying storage of the builder.</summary>
+        public Span<char> RawChars => _chars;
+
+        /// <summary>
+        /// Returns a span around the contents of the builder.
+        /// </summary>
+        /// <param name="terminate">Ensures that the builder has a null char after <see cref="Length"/></param>
         public ReadOnlySpan<char> AsSpan(bool terminate)
         {
             if (terminate)
             {
                 EnsureCapacity(Length + 1);
-                chars[Length] = '\0';
+                _chars[Length] = '\0';
             }
-            return chars.Slice(0, pos);
+            return _chars.Slice(0, _pos);
         }
 
-        public ReadOnlySpan<char> AsSpan() => chars.Slice(0, pos);
-        public ReadOnlySpan<char> AsSpan(int start) => chars.Slice(start, pos - start);
-        public ReadOnlySpan<char> AsSpan(int start, int length) => chars.Slice(start, length);
+        public ReadOnlySpan<char> AsSpan() => _chars.Slice(0, _pos);
+        public ReadOnlySpan<char> AsSpan(int start) => _chars.Slice(start, _pos - start);
+        public ReadOnlySpan<char> AsSpan(int start, int length) => _chars.Slice(start, length);
 
         public bool TryCopyTo(Span<char> destination, out int charsWritten)
         {
-            if (chars.Slice(0, pos).TryCopyTo(destination))
+            if (_chars.Slice(0, _pos).TryCopyTo(destination))
             {
-                charsWritten = pos;
+                charsWritten = _pos;
                 Dispose();
                 return true;
             }
@@ -90,15 +134,15 @@ namespace Unityroom.Client
 
         public void Insert(int index, char value, int count)
         {
-            if (pos > chars.Length - count)
+            if (_pos > _chars.Length - count)
             {
                 Grow(count);
             }
 
-            var remaining = pos - index;
-            chars.Slice(index, remaining).CopyTo(chars.Slice(index + count));
-            chars.Slice(index, count).Fill(value);
-            pos += count;
+            int remaining = _pos - index;
+            _chars.Slice(index, remaining).CopyTo(_chars.Slice(index + count));
+            _chars.Slice(index, count).Fill(value);
+            _pos += count;
         }
 
         public void Insert(int index, string? s)
@@ -108,26 +152,32 @@ namespace Unityroom.Client
                 return;
             }
 
-            var count = s.Length;
+            int count = s.Length;
 
-            if (pos > (chars.Length - count))
+            if (_pos > (_chars.Length - count))
             {
                 Grow(count);
             }
 
-            var remaining = pos - index;
-            chars.Slice(index, remaining).CopyTo(chars.Slice(index + count));
-            s.AsSpan().CopyTo(chars.Slice(index));
-            pos += count;
+            int remaining = _pos - index;
+            _chars.Slice(index, remaining).CopyTo(_chars.Slice(index + count));
+            s
+#if !NET
+                .AsSpan()
+#endif
+                .CopyTo(_chars.Slice(index));
+            _pos += count;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Append(char c)
         {
+            int pos = _pos;
+            Span<char> chars = _chars;
             if ((uint)pos < (uint)chars.Length)
             {
                 chars[pos] = c;
-                pos++;
+                _pos = pos + 1;
             }
             else
             {
@@ -143,10 +193,11 @@ namespace Unityroom.Client
                 return;
             }
 
-            if (s.Length == 1 && (uint)pos < (uint)chars.Length)
+            int pos = _pos;
+            if (s.Length == 1 && (uint)pos < (uint)_chars.Length) // very common case, e.g. appending strings from NumberFormatInfo like separators, percent symbols, etc.
             {
-                chars[pos] = s[0];
-                this.pos = pos + 1;
+                _chars[pos] = s[0];
+                _pos = pos + 1;
             }
             else
             {
@@ -154,84 +205,115 @@ namespace Unityroom.Client
             }
         }
 
-        void AppendSlow(string s)
+        private void AppendSlow(string s)
         {
-            if (pos > chars.Length - s.Length)
+            int pos = _pos;
+            if (pos > _chars.Length - s.Length)
             {
                 Grow(s.Length);
             }
 
-            s.AsSpan().CopyTo(chars.Slice(pos));
-            pos += s.Length;
+            s
+#if !NET
+                .AsSpan()
+#endif
+                .CopyTo(_chars.Slice(pos));
+            _pos += s.Length;
         }
 
         public void Append(char c, int count)
         {
-            if (pos > chars.Length - count)
+            if (_pos > _chars.Length - count)
             {
                 Grow(count);
             }
 
-            var dst = chars.Slice(pos, count);
+            Span<char> dst = _chars.Slice(_pos, count);
             for (int i = 0; i < dst.Length; i++)
             {
                 dst[i] = c;
             }
-            pos += count;
+            _pos += count;
+        }
+
+        public unsafe void Append(char* value, int length)
+        {
+            int pos = _pos;
+            if (pos > _chars.Length - length)
+            {
+                Grow(length);
+            }
+
+            Span<char> dst = _chars.Slice(_pos, length);
+            for (int i = 0; i < dst.Length; i++)
+            {
+                dst[i] = *value++;
+            }
+            _pos += length;
         }
 
         public void Append(ReadOnlySpan<char> value)
         {
-            int pos = this.pos;
-            if (pos > chars.Length - value.Length)
+            int pos = _pos;
+            if (pos > _chars.Length - value.Length)
             {
                 Grow(value.Length);
             }
 
-            value.CopyTo(chars.Slice(this.pos));
-            this.pos += value.Length;
-        }
-
-        public void Append<T>(T value, string? format = null, IFormatProvider? provider = null) where T : IFormattable
-        {
-            Append(value.ToString(format, provider));
+            value.CopyTo(_chars.Slice(_pos));
+            _pos += value.Length;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public Span<char> AppendSpan(int length)
         {
-            int origPos = pos;
-            if (origPos > chars.Length - length)
+            int origPos = _pos;
+            if (origPos > _chars.Length - length)
             {
                 Grow(length);
             }
 
-            pos = origPos + length;
-            return chars.Slice(origPos, length);
+            _pos = origPos + length;
+            return _chars.Slice(origPos, length);
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        void GrowAndAppend(char c)
+        private void GrowAndAppend(char c)
         {
             Grow(1);
             Append(c);
         }
 
+        /// <summary>
+        /// Resize the internal buffer either by doubling current buffer size or
+        /// by adding <paramref name="additionalCapacityBeyondPos"/> to
+        /// <see cref="_pos"/> whichever is greater.
+        /// </summary>
+        /// <param name="additionalCapacityBeyondPos">
+        /// Number of chars requested beyond current position.
+        /// </param>
         [MethodImpl(MethodImplOptions.NoInlining)]
-        void Grow(int additionalCapacityBeyondPos)
+        private void Grow(int additionalCapacityBeyondPos)
         {
+            Debug.Assert(additionalCapacityBeyondPos > 0);
+            Debug.Assert(_pos > _chars.Length - additionalCapacityBeyondPos, "Grow called incorrectly, no resize is needed.");
+
             const uint ArrayMaxLength = 0x7FFFFFC7; // same as Array.MaxLength
 
-            var newCapacity = (int)Math.Max(
-                (uint)(pos + additionalCapacityBeyondPos),
-                Math.Min((uint)chars.Length * 2, ArrayMaxLength));
+            // Increase to at least the required size (_pos + additionalCapacityBeyondPos), but try
+            // to double the size if possible, bounding the doubling to not go beyond the max array length.
+            int newCapacity = (int)Math.Max(
+                (uint)(_pos + additionalCapacityBeyondPos),
+                Math.Min((uint)_chars.Length * 2, ArrayMaxLength));
 
-            var poolArray = ArrayPool<char>.Shared.Rent(newCapacity);
+            // Make sure to let Rent throw an exception if the caller has a bug and the desired capacity is negative.
+            // This could also go negative if the actual required length wraps around.
+            char[] poolArray = ArrayPool<char>.Shared.Rent(newCapacity);
 
-            chars.Slice(0, pos).CopyTo(poolArray);
+            _chars.Slice(0, _pos).CopyTo(poolArray);
 
-            var toReturn = arrayToReturnToPool;
-            chars = arrayToReturnToPool = poolArray;
+            char[]? toReturn = _arrayToReturnToPool;
+            _chars = _arrayToReturnToPool = poolArray;
             if (toReturn != null)
             {
                 ArrayPool<char>.Shared.Return(toReturn);
@@ -241,8 +323,8 @@ namespace Unityroom.Client
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Dispose()
         {
-            var toReturn = arrayToReturnToPool;
-            this = default;
+            char[]? toReturn = _arrayToReturnToPool;
+            this = default; // for safety, to avoid using pooled array if this instance is erroneously appended to again
             if (toReturn != null)
             {
                 ArrayPool<char>.Shared.Return(toReturn);
